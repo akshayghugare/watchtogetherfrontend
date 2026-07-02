@@ -36,7 +36,6 @@ export function UrlVideoPlayer({ roomId, movie, isHost }: UrlVideoPlayerProps) {
   const ready = useRef(false);
   const interacted = useRef(false); // a real user gesture happened on this page
   const lastState = useRef<PlaybackState | null>(null);
-  const pendingState = useRef<PlaybackState | null>(null); // arrived before the player was ready
 
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
@@ -49,9 +48,9 @@ export function UrlVideoPlayer({ roomId, movie, isHost }: UrlVideoPlayerProps) {
   const applyState = (state: PlaybackState, seekAlways = false) => {
     lastState.current = state;
 
-    // seekTo/play before the player is ready gets dropped — defer to onReady.
+    // seekTo/play before the player is ready gets dropped — onReady re-applies
+    // lastState once the underlying (e.g. YouTube) player is actually available.
     if (!ready.current) {
-      pendingState.current = state;
       if (state.isPlaying && !interacted.current) setNeedsTap(true);
       return;
     }
@@ -81,12 +80,11 @@ export function UrlVideoPlayer({ roomId, movie, isHost }: UrlVideoPlayerProps) {
     }, 300);
   };
 
+  // Fires whenever the underlying player (re)initializes — always resync to
+  // the latest known room state so nothing applied too early is lost.
   const onPlayerReady = () => {
-    if (ready.current) return;
     ready.current = true;
-    const pending = pendingState.current;
-    pendingState.current = null;
-    if (pending) applyState(pending, true);
+    if (lastState.current) applyState(lastState.current, true);
   };
 
   /** One-time gate click: counts as the gesture browsers require, then resync. */
