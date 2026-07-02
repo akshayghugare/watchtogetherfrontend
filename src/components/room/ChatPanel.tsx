@@ -272,12 +272,12 @@ export function ChatPanel({ roomId }: { roomId: string }) {
   const typingLabel = [...typingUsers.values()].filter(Boolean);
 
   return (
-    <div className="flex h-full min-h-0 flex-col rounded-xl border border-surface-border bg-surface-raised">
+    <div className="flex h-full  flex-col rounded-xl border border-surface-border bg-surface-raised">
       <div className="border-b border-surface-border px-4 py-2.5 text-sm font-semibold text-white">
         💬 Room chat
       </div>
 
-      <div ref={listRef} className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
+      <div ref={listRef} className=" flex-1 space-y-0.5 overflow-y-auto p-2">
         {messages.length === 0 && (
           <p className="py-8 text-center text-xs text-gray-600">Say hi — the movie's better with commentary 🍿</p>
         )}
