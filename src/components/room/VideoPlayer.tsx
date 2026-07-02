@@ -27,7 +27,13 @@ const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 export function VideoPlayer({ roomId, movie, isHost }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const sync = useRoomSync({ roomId, isHost, videoRef });
+  const [needsTap, setNeedsTap] = useState(false);
+  const sync = useRoomSync({
+    roomId,
+    isHost,
+    videoRef,
+    onAutoplayBlocked: () => setNeedsTap(true),
+  });
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -150,6 +156,13 @@ export function VideoPlayer({ roomId, movie, isHost }: VideoPlayerProps) {
     hideTimer.current = setTimeout(() => setShowControls(false), 3000);
   };
 
+  /** The tap itself is the user gesture browsers require to unlock playback. */
+  const startWatching = () => {
+    setNeedsTap(false);
+    void videoRef.current?.play().catch(() => undefined);
+    sync.resync();
+  };
+
   return (
     <div
       ref={containerRef}
@@ -169,10 +182,22 @@ export function VideoPlayer({ roomId, movie, isHost }: VideoPlayerProps) {
         )}
       </video>
 
-      {!isHost && (
+      {!isHost && !needsTap && (
         <div className="pointer-events-none absolute left-3 top-3 rounded-md bg-black/60 px-2 py-1 text-xs text-gray-300">
           🔄 Synced with host
         </div>
+      )}
+
+      {needsTap && (
+        <button
+          onClick={startWatching}
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/70"
+        >
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-600 text-3xl text-white shadow-lg">
+            ▶
+          </span>
+          <span className="text-sm font-medium text-gray-200">Tap to start watching with everyone</span>
+        </button>
       )}
 
       {/* Controls */}

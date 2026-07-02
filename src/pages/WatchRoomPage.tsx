@@ -10,6 +10,7 @@ import { UrlVideoPlayer } from '@/components/room/UrlVideoPlayer';
 import { ChatPanel } from '@/components/room/ChatPanel';
 import { MembersPanel } from '@/components/room/MembersPanel';
 import { CallPanel } from '@/components/room/CallPanel';
+import { ChangeVideoModal } from '@/components/room/ChangeVideoModal';
 import { Spinner } from '@/components/ui/Spinner';
 import { Button } from '@/components/ui/Button';
 import { ROUTES } from '@/constants';
@@ -21,6 +22,7 @@ export function WatchRoomPage() {
   const navigate = useNavigate();
   const [room, setRoom] = useState<Room | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showChangeVideo, setShowChangeVideo] = useState(false);
 
   const isHost = Boolean(room && user && room.hostId === user.id);
 
@@ -56,6 +58,10 @@ export function WatchRoomPage() {
     if (!socket || !roomId) return;
 
     const refresh = () => void roomApi.getOne(roomId).then((r) => setRoom(r.data.room)).catch(() => undefined);
+    const onMovieChanged = ({ movieTitle }: { movieTitle?: string }) => {
+      toast(`Now watching: ${movieTitle ?? 'a new video'} 🎬`, { icon: '🔄' });
+      refresh();
+    };
     const onKicked = ({ roomId: kickedFrom }: { roomId: string }) => {
       if (kickedFrom === roomId) {
         toast.error('You were removed from this room.');
@@ -70,12 +76,14 @@ export function WatchRoomPage() {
     socket.on('room:member-joined', refresh);
     socket.on('room:member-left', refresh);
     socket.on('room:host-changed', refresh);
+    socket.on('room:movie-changed', onMovieChanged);
     socket.on('room:kicked', onKicked);
     socket.on('room:ended', onEnded);
     return () => {
       socket.off('room:member-joined', refresh);
       socket.off('room:member-left', refresh);
       socket.off('room:host-changed', refresh);
+      socket.off('room:movie-changed', onMovieChanged);
       socket.off('room:kicked', onKicked);
       socket.off('room:ended', onEnded);
     };
@@ -121,6 +129,15 @@ export function WatchRoomPage() {
             {isHost ? 'You are the host 👑' : `Host: ${room.host?.displayName ?? room.host?.username}`}
           </p>
         </div>
+        {isHost && (
+          <Button
+            variant="ghost"
+            onClick={() => setShowChangeVideo(true)}
+            className="!px-3 !py-1.5 text-xs"
+          >
+            🔄 Change video
+          </Button>
+        )}
         <Button variant="ghost" onClick={() => void leave()} className="!px-3 !py-1.5 text-xs">
           Leave room
         </Button>
@@ -140,9 +157,9 @@ export function WatchRoomPage() {
         <div className="min-w-0 space-y-4">
           {room.movie ? (
             room.movie.source === 'UPLOAD' ? (
-              <VideoPlayer roomId={room.id} movie={room.movie} isHost={isHost} />
+              <VideoPlayer key={room.movie.id} roomId={room.id} movie={room.movie} isHost={isHost} />
             ) : (
-              <UrlVideoPlayer roomId={room.id} movie={room.movie} isHost={isHost} />
+              <UrlVideoPlayer key={room.movie.id} roomId={room.id} movie={room.movie} isHost={isHost} />
             )
           ) : (
             <div className="flex aspect-video items-center justify-center rounded-xl border border-surface-border bg-surface-raised text-gray-500">
@@ -165,6 +182,14 @@ export function WatchRoomPage() {
           </div>
         </div>
       </div>
+
+      {showChangeVideo && (
+        <ChangeVideoModal
+          roomId={room.id}
+          onClose={() => setShowChangeVideo(false)}
+          onChanged={() => void loadRoom()}
+        />
+      )}
     </div>
   );
 }

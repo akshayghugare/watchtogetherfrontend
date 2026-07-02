@@ -24,11 +24,19 @@ function formatTime(sec: number): string {
  * Same protocol as the HTML5 player: host actions broadcast via socket,
  * members follow with latency compensation; a transparent overlay stops
  * members from driving the embedded (e.g. YouTube) controls directly.
+ *
+ * Browsers refuse programmatic playback before the user's first gesture on
+ * the page, so anyone who lands in an already-playing room gets a one-time
+ * "tap to watch" gate instead of a silent black screen.
  */
 export function UrlVideoPlayer({ roomId, movie, isHost }: UrlVideoPlayerProps) {
   const playerRef = useRef<ReactPlayer>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const applyingRemote = useRef(false);
+  const ready = useRef(false);
+  const interacted = useRef(false); // a real user gesture happened on this page
+  const lastState = useRef<PlaybackState | null>(null);
+  const pendingState = useRef<PlaybackState | null>(null); // arrived before the player was ready
 
   const [playing, setPlaying] = useState(false);
   const [rate, setRate] = useState(1);
@@ -36,8 +44,26 @@ export function UrlVideoPlayer({ roomId, movie, isHost }: UrlVideoPlayerProps) {
   const [muted, setMuted] = useState(false);
   const [duration, setDuration] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [needsTap, setNeedsTap] = useState(false);
 
   const applyState = (state: PlaybackState, seekAlways = false) => {
+    lastState.current = state;
+
+    // seekTo/play before the player is ready gets dropped — defer to onReady.
+    if (!ready.current) {
+      pendingState.current = state;
+      if (state.isPlaying && !interacted.current) setNeedsTap(true);
+      return;
+    }
+
+    // Autoplay would be blocked without a gesture — ask for a tap instead
+    // of silently showing a black screen.
+    if (state.isPlaying && !interacted.current) {
+      setNeedsTap(true);
+      return;
+    }
+    setNeedsTap(false);
+
     applyingRemote.current = true;
     const latencySec = Math.max(0, (Date.now() - state.serverTime) / 1000);
     const target = state.isPlaying
@@ -53,6 +79,29 @@ export function UrlVideoPlayer({ roomId, movie, isHost }: UrlVideoPlayerProps) {
     setTimeout(() => {
       applyingRemote.current = false;
     }, 300);
+  };
+
+  const onPlayerReady = () => {
+    if (ready.current) return;
+    ready.current = true;
+    const pending = pendingState.current;
+    pendingState.current = null;
+    if (pending) applyState(pending, true);
+  };
+
+  /** One-time gate click: counts as the gesture browsers require, then resync. */
+  const startWatching = () => {
+    interacted.current = true;
+    setNeedsTap(false);
+    const socket = getSocket();
+    if (socket) {
+      socket.emit('playback:state', { roomId }, (res: { ok: boolean; playback?: PlaybackState }) => {
+        if (res.ok && res.playback) applyState(res.playback, true);
+        else if (lastState.current) applyState(lastState.current, true);
+      });
+    } else if (lastState.current) {
+      applyState(lastState.current, true);
+    }
   };
 
   useEffect(() => {
@@ -109,6 +158,7 @@ export function UrlVideoPlayer({ roomId, movie, isHost }: UrlVideoPlayerProps) {
 
   const hostToggle = () => {
     if (!isHost) return;
+    interacted.current = true;
     const pos = playerRef.current?.getCurrentTime() ?? 0;
     const next = !playing;
     setPlaying(next);
@@ -135,7 +185,13 @@ export function UrlVideoPlayer({ roomId, movie, isHost }: UrlVideoPlayerProps) {
   };
 
   return (
-    <div ref={containerRef} className="relative aspect-video w-full overflow-hidden rounded-xl bg-black">
+    <div
+      ref={containerRef}
+      onPointerDown={() => {
+        interacted.current = true;
+      }}
+      className="relative aspect-video w-full overflow-hidden rounded-xl bg-black"
+    >
       <ReactPlayer
         ref={playerRef}
         url={movie.fileUrl}
@@ -146,6 +202,9 @@ export function UrlVideoPlayer({ roomId, movie, isHost }: UrlVideoPlayerProps) {
         volume={volume}
         muted={muted}
         controls={false}
+        playsinline
+        config={{ youtube: { playerVars: { playsinline: 1, rel: 0 } } }}
+        onReady={onPlayerReady}
         onDuration={setDuration}
         onProgress={(p) => setProgress(p.playedSeconds)}
         onPlay={() => {
@@ -165,10 +224,22 @@ export function UrlVideoPlayer({ roomId, movie, isHost }: UrlVideoPlayerProps) {
       {/* Members can't drive the embedded player (YouTube etc.) directly. */}
       {!isHost && <div className="absolute inset-0" />}
 
-      {!isHost && (
+      {!isHost && !needsTap && (
         <div className="pointer-events-none absolute left-3 top-3 rounded-md bg-black/60 px-2 py-1 text-xs text-gray-300">
           🔄 Synced with host
         </div>
+      )}
+
+      {needsTap && (
+        <button
+          onClick={startWatching}
+          className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black/70"
+        >
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-brand-600 text-3xl text-white shadow-lg">
+            ▶
+          </span>
+          <span className="text-sm font-medium text-gray-200">Tap to start watching with everyone</span>
+        </button>
       )}
 
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 to-transparent px-4 pb-3 pt-10">

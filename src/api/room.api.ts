@@ -40,6 +40,11 @@ export const roomApi = {
   invite: (roomId: string, friendId: string) =>
     api.post<ApiEnvelope<null>>(`/rooms/${roomId}/invite`, { friendId }).then((r) => r.data),
 
+  changeMovie: (roomId: string, movieId: string) =>
+    api
+      .patch<ApiEnvelope<{ room: Room }>>(`/rooms/${roomId}/movie`, { movieId })
+      .then((r) => r.data),
+
   end: (roomId: string) => api.post<ApiEnvelope<null>>(`/rooms/${roomId}/end`).then((r) => r.data),
 
   myProgress: (roomId: string) =>

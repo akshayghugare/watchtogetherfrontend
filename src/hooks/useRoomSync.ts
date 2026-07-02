@@ -6,6 +6,8 @@ interface UseRoomSyncOptions {
   roomId: string;
   isHost: boolean;
   videoRef: React.RefObject<HTMLVideoElement>;
+  /** Called when the browser blocks programmatic play (no user gesture yet). */
+  onAutoplayBlocked?: () => void;
 }
 
 /**
@@ -18,9 +20,11 @@ interface UseRoomSyncOptions {
  * Members: apply host events with latency compensation (serverTime delta) and
  * self-correct on the heartbeat when drifting more than 2 seconds.
  */
-export function useRoomSync({ roomId, isHost, videoRef }: UseRoomSyncOptions) {
+export function useRoomSync({ roomId, isHost, videoRef, onAutoplayBlocked }: UseRoomSyncOptions) {
   // True while WE are applying remote state — suppresses re-emitting it.
   const applyingRemote = useRef(false);
+  const onBlockedRef = useRef(onAutoplayBlocked);
+  onBlockedRef.current = onAutoplayBlocked;
 
   const applyState = useCallback(
     (state: PlaybackState, opts: { seekAlways?: boolean } = {}) => {
@@ -38,7 +42,9 @@ export function useRoomSync({ roomId, isHost, videoRef }: UseRoomSyncOptions) {
       }
       video.playbackRate = state.playbackRate;
       if (state.isPlaying && video.paused) {
-        void video.play().catch(() => undefined); // autoplay policies
+        // Autoplay policies: surface the block so the UI can ask for a tap
+        // instead of leaving the member on a frozen/black frame.
+        void video.play().catch(() => onBlockedRef.current?.());
       } else if (!state.isPlaying && !video.paused) {
         video.pause();
       }
@@ -120,11 +126,23 @@ export function useRoomSync({ roomId, isHost, videoRef }: UseRoomSyncOptions) {
     [isHost, roomId],
   );
 
+  /** Re-fetch the authoritative state and apply it (used after a tap-to-play). */
+  const resync = useCallback(() => {
+    getSocket()?.emit(
+      'playback:state',
+      { roomId },
+      (res: { ok: boolean; playback?: PlaybackState }) => {
+        if (res.ok && res.playback) applyState(res.playback, { seekAlways: true });
+      },
+    );
+  }, [roomId, applyState]);
+
   return {
     onHostPlay: (positionSec: number) => emitIfHost('playback:play', { positionSec }),
     onHostPause: (positionSec: number) => emitIfHost('playback:pause', { positionSec }),
     onHostSeek: (positionSec: number) => emitIfHost('playback:seek', { positionSec }),
     onHostRate: (rate: number) => emitIfHost('playback:rate', { rate }),
     isApplyingRemote: () => applyingRemote.current,
+    resync,
   };
 }
