@@ -9,7 +9,7 @@ import { NotificationsDropdown } from '@/components/layout/NotificationsDropdown
 import { ROUTES } from '@/constants';
 import type { PublicUser } from '@/types';
 
-const navItems = [
+const baseNavItems = [
   { to: ROUTES.DASHBOARD, label: 'Dashboard', icon: '🏠' },
   { to: ROUTES.ROOMS, label: 'Movie Rooms', icon: '🎬' },
   { to: ROUTES.FRIENDS, label: 'Friends', icon: '👥' },
@@ -19,6 +19,11 @@ export function DashboardLayout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [onlineFriends, setOnlineFriends] = useState<PublicUser[]>([]);
+
+  const navItems =
+    user?.role === 'ADMIN'
+      ? [...baseNavItems, { to: ROUTES.ADMIN, label: 'Admin', icon: '🛡️' }]
+      : baseNavItems;
 
   useEffect(() => {
     let cancelled = false;

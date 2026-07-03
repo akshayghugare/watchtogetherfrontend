@@ -3,11 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { movieApi } from '@/api/movie.api';
 import { roomApi } from '@/api/room.api';
+import { friendApi } from '@/api/friend.api';
 import { getErrorMessage } from '@/api/axios';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { watchPath } from '@/constants';
-import type { Movie } from '@/types';
+import type { Movie, PublicUser } from '@/types';
 
 interface Props {
   onClose: () => void;
@@ -21,6 +22,8 @@ export function CreateRoomModal({ onClose }: Props) {
   const [name, setName] = useState('');
   const [privacy, setPrivacy] = useState<'PUBLIC' | 'PRIVATE'>('PUBLIC');
   const [password, setPassword] = useState('');
+  const [friends, setFriends] = useState<PublicUser[]>([]);
+  const [invitedIds, setInvitedIds] = useState<Set<string>>(new Set());
 
   // Movie source: existing, upload, or URL
   const [movieMode, setMovieMode] = useState<'existing' | 'upload' | 'url'>('upload');
@@ -42,7 +45,20 @@ export function CreateRoomModal({ onClose }: Props) {
         if (res.data.movies.length > 0) setMovieMode('existing');
       })
       .catch(() => undefined);
+    friendApi
+      .list()
+      .then((res) => setFriends(res.data.friends))
+      .catch(() => undefined);
   }, []);
+
+  const toggleInvite = (friendId: string) => {
+    setInvitedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(friendId)) next.delete(friendId);
+      else next.add(friendId);
+      return next;
+    });
+  };
 
   const submit = async () => {
     if (!name.trim()) {
@@ -89,6 +105,7 @@ export function CreateRoomModal({ onClose }: Props) {
         movieId: selectedMovieId,
         privacy,
         password: password || undefined,
+        invitedUserIds: invitedIds.size > 0 ? [...invitedIds] : undefined,
       });
       toast.success('Room created — your friends have been notified! 🎬');
       onClose();
@@ -225,7 +242,7 @@ export function CreateRoomModal({ onClose }: Props) {
                 className="input-field mt-1.5"
               >
                 <option value="PUBLIC">Public</option>
-                <option value="PRIVATE">Private (friends / password)</option>
+                <option value="PRIVATE">Private (invited friends only)</option>
               </select>
             </div>
             <Input
@@ -235,6 +252,35 @@ export function CreateRoomModal({ onClose }: Props) {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="min 4 chars"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-300">
+              Invite friends {privacy === 'PRIVATE' && <span className="text-gray-500">(only they can see &amp; join)</span>}
+            </label>
+            {friends.length === 0 ? (
+              <p className="mt-1.5 text-xs text-gray-600">
+                No friends yet — add friends to invite them.
+              </p>
+            ) : (
+              <div className="mt-1.5 flex max-h-28 flex-wrap gap-1.5 overflow-y-auto">
+                {friends.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => toggleInvite(f.id)}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-medium transition ${
+                      invitedIds.has(f.id)
+                        ? 'bg-brand-600 text-white'
+                        : 'border border-surface-border text-gray-400 hover:text-gray-200'
+                    }`}
+                  >
+                    {invitedIds.has(f.id) ? '✓ ' : ''}
+                    {f.displayName ?? f.username}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <Button onClick={submit} isLoading={submitting} className="w-full">

@@ -13,6 +13,7 @@ export const ROUTES = {
   ROOMS: '/rooms',
   WATCH: '/rooms/:roomId/watch',
   NOTIFICATIONS: '/notifications',
+  ADMIN: '/admin',
 } as const;
 
 export function watchPath(roomId: string): string {

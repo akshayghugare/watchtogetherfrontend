@@ -78,7 +78,8 @@ export function RoomsPage() {
   const joinRoom = async (room: Room) => {
     try {
       let password: string | undefined;
-      if (room.hasPassword) {
+      // Private rooms are invite-gated — no password needed if you can see them.
+      if (room.hasPassword && room.privacy !== 'PRIVATE') {
         password = window.prompt('This room requires a password:') ?? undefined;
         if (password === undefined) return;
       }
@@ -147,11 +148,11 @@ export function RoomsPage() {
       )}
 
       <h2 className="mt-8 text-sm font-semibold uppercase tracking-wide text-gray-500">
-        Public rooms
+        Rooms for you
       </h2>
       {publicRooms.length === 0 ? (
         <p className="mt-6 text-center text-sm text-gray-500">
-          No public rooms right now — create the first one! 🍿
+          No rooms available right now — create the first one! 🍿
         </p>
       ) : (
         <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

@@ -71,6 +71,14 @@ export interface RoomMember {
   user?: PublicUser;
 }
 
+export interface RoomInvite {
+  id: string;
+  roomId: string;
+  userId: string;
+  invitedById: string | null;
+  user?: PublicUser;
+}
+
 export interface Room {
   id: string;
   name: string;
@@ -88,6 +96,7 @@ export interface Room {
   host?: PublicUser;
   movie?: Movie | null;
   members?: RoomMember[];
+  invites?: RoomInvite[];
 }
 
 export interface PlaybackState {
@@ -166,4 +175,12 @@ export interface PeerMediaState {
   audio: boolean;
   video: boolean;
   screen: boolean;
+}
+
+/** Room-wide screen share announcement (`screen:share-state`). */
+export interface ScreenShareState {
+  roomId: string;
+  sharing: boolean;
+  userId: string | null;
+  username: string | null;
 }

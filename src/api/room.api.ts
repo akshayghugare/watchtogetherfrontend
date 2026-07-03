@@ -7,6 +7,7 @@ export interface CreateRoomInput {
   privacy?: 'PUBLIC' | 'PRIVATE';
   password?: string;
   maxMembers?: number;
+  invitedUserIds?: string[];
 }
 
 export const roomApi = {

@@ -277,7 +277,7 @@ export function ChatPanel({ roomId }: { roomId: string }) {
         💬 Room chat
       </div>
 
-      <div ref={listRef} className=" flex-1 space-y-0.5 overflow-y-auto p-2">
+      <div ref={listRef} className="min-h-[10rem] flex-1 space-y-0.5 overflow-y-auto p-2">
         {messages.length === 0 && (
           <p className="py-8 text-center text-xs text-gray-600">Say hi — the movie's better with commentary 🍿</p>
         )}

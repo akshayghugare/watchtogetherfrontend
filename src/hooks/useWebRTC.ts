@@ -14,6 +14,8 @@ export interface RemotePeer extends CallPeer {
   media: PeerMediaState;
 }
 
+export type WebRTCState = ReturnType<typeof useWebRTC>;
+
 interface SignalData {
   sdp?: RTCSessionDescriptionInit;
   candidate?: RTCIceCandidateInit;
@@ -70,8 +72,15 @@ export function useWebRTC(roomId: string) {
         return next;
       });
 
-      for (const track of localStreamRef.current?.getTracks() ?? []) {
+      const localTracks = localStreamRef.current?.getTracks() ?? [];
+      for (const track of localTracks) {
         pc.addTrack(track, localStreamRef.current!);
+      }
+      // View-only participants send nothing but must still negotiate
+      // receive-only audio/video so remote tracks arrive.
+      if (initiator && localTracks.length === 0) {
+        pc.addTransceiver('audio', { direction: 'recvonly' });
+        pc.addTransceiver('video', { direction: 'recvonly' });
       }
 
       pc.onicecandidate = (e) => {
@@ -88,7 +97,11 @@ export function useWebRTC(roomId: string) {
       };
 
       pc.onnegotiationneeded = async () => {
-        if (!initiator) return;
+        // The initial offer always comes from the newcomer (initiator). Once
+        // the first negotiation is done, either side may renegotiate — e.g. a
+        // member who joined audio-only turning their camera on later.
+        if (!initiator && !pc.remoteDescription) return;
+        if (pc.signalingState !== 'stable') return;
         try {
           await pc.setLocalDescription(await pc.createOffer());
           socket.emit('call:signal', {
@@ -135,6 +148,8 @@ export function useWebRTC(roomId: string) {
     const onPeerJoined = (peer: CallPeer) => {
       // Newcomer initiates; we just prepare the connection and answer.
       createPeerConnection(peer, false);
+      // Re-announce our media state so late joiners see an ongoing screen share.
+      broadcastMediaState({ audio: audioOn, video: videoOn, screen: screenOn });
     };
 
     const onSignal = async ({ fromSocketId, data }: { fromSocketId: string; data: SignalData }) => {
@@ -142,6 +157,11 @@ export function useWebRTC(roomId: string) {
       if (!pc) return;
       try {
         if (data.sdp) {
+          // Offer collision (both sides renegotiating at once): roll back our
+          // pending offer and answer theirs instead.
+          if (data.sdp.type === 'offer' && pc.signalingState !== 'stable') {
+            await pc.setLocalDescription({ type: 'rollback' });
+          }
           await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
           if (data.sdp.type === 'offer') {
             await pc.setLocalDescription(await pc.createAnswer());
@@ -174,22 +194,26 @@ export function useWebRTC(roomId: string) {
       socket.off('call:peer-left', onPeerLeft);
       socket.off('call:media-state', onMediaState);
     };
-  }, [inCall, createPeerConnection, closePeer, updatePeer]);
+  }, [inCall, createPeerConnection, closePeer, updatePeer, broadcastMediaState, audioOn, videoOn, screenOn]);
 
   const joinCall = useCallback(
-    async (withVideo: boolean) => {
+    async (withVideo: boolean, opts?: { viewOnly?: boolean }) => {
       const socket = getSocket();
       if (!socket || inCall) return;
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: withVideo,
-      });
+      // View-only join (auto-switching to a screen share) needs no mic/camera.
+      const viewOnly = Boolean(opts?.viewOnly);
+      const stream = viewOnly
+        ? new MediaStream()
+        : await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+            video: withVideo,
+          });
       localStreamRef.current = stream;
       cameraTrackRef.current = stream.getVideoTracks()[0] ?? null;
       setLocalStream(stream);
-      setAudioOn(true);
-      setVideoOn(withVideo);
+      setAudioOn(!viewOnly);
+      setVideoOn(withVideo && !viewOnly);
       setScreenOn(false);
       setInCall(true);
 
@@ -200,7 +224,11 @@ export function useWebRTC(roomId: string) {
           if (!res.ok) return;
           // We are the newcomer → we initiate offers to everyone already in.
           for (const peer of res.peers ?? []) createPeerConnection(peer, true);
-          broadcastMediaState({ audio: true, video: withVideo, screen: false });
+          broadcastMediaState({
+            audio: !viewOnly,
+            video: withVideo && !viewOnly,
+            screen: false,
+          });
         },
       );
     },
@@ -232,7 +260,18 @@ export function useWebRTC(roomId: string) {
   /** Replaces the outgoing video track on every peer connection. */
   const replaceVideoTrack = useCallback(async (track: MediaStreamTrack | null) => {
     for (const pc of pcs.current.values()) {
-      const sender = pc.getSenders().find((s) => s.track?.kind === 'video');
+      // Reuse only a transceiver we already SEND video on (its track may be
+      // null after the camera/share stopped). A recv-only transceiver — the
+      // peer's video, not ours — must not be reused: replaceTrack on it sends
+      // nothing and never renegotiates. addTrack below upgrades or creates a
+      // sending transceiver and triggers renegotiation.
+      const sender = pc
+        .getTransceivers()
+        .find(
+          (t) =>
+            (t.direction === 'sendrecv' || t.direction === 'sendonly') &&
+            (t.sender.track?.kind === 'video' || t.receiver.track?.kind === 'video'),
+        )?.sender;
       if (sender) {
         await sender.replaceTrack(track).catch(() => undefined);
       } else if (track && localStreamRef.current) {
@@ -297,6 +336,44 @@ export function useWebRTC(roomId: string) {
     broadcastMediaState({ audio: audioOn, video: videoOn, screen: true });
   }, [screenOn, audioOn, videoOn, replaceVideoTrack, broadcastMediaState]);
 
+  /** Presenter picks a different display/window without stopping the share. */
+  const switchScreenShare = useCallback(async () => {
+    const stream = localStreamRef.current;
+    if (!stream || !screenOn) return;
+
+    const display = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: false,
+    });
+    const newTrack = display.getVideoTracks()[0];
+    const cam = cameraTrackRef.current;
+    stream.getVideoTracks().forEach((t) => {
+      if (t !== cam) {
+        t.onended = null;
+        t.stop();
+        stream.removeTrack(t);
+      }
+    });
+    newTrack.onended = () => void toggleScreenShare();
+    stream.addTrack(newTrack);
+    await replaceVideoTrack(newTrack);
+    setLocalStream(new MediaStream(stream.getTracks()));
+  }, [screenOn, replaceVideoTrack, toggleScreenShare]);
+
+  // Admins can force-stop an active screen share.
+  useEffect(() => {
+    const socket = getSocket();
+    if (!socket || !inCall) return;
+
+    const onForceStop = ({ roomId: target }: { roomId: string }) => {
+      if (target === roomId && screenOn) void toggleScreenShare();
+    };
+    socket.on('screen:force-stop', onForceStop);
+    return () => {
+      socket.off('screen:force-stop', onForceStop);
+    };
+  }, [inCall, roomId, screenOn, toggleScreenShare]);
+
   return {
     inCall,
     localStream,
@@ -309,5 +386,6 @@ export function useWebRTC(roomId: string) {
     toggleAudio,
     toggleVideo,
     toggleScreenShare,
+    switchScreenShare,
   };
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useWebRTC, type RemotePeer } from '@/hooks/useWebRTC';
+import type { WebRTCState, RemotePeer } from '@/hooks/useWebRTC';
 
 function VideoTile({
   stream,
@@ -43,11 +43,10 @@ function VideoTile({
 
 /**
  * In-room voice/video call bar: join with mic or camera, talk while the movie
- * plays, share your screen — everyone in the call sees it live.
+ * plays, share your screen — everyone in the call sees it live. The WebRTC
+ * state is owned by the room page so the screen-share stage can use it too.
  */
-export function CallPanel({ roomId, username }: { roomId: string; username: string }) {
-  const rtc = useWebRTC(roomId);
-
+export function CallPanel({ username, rtc }: { username: string; rtc: WebRTCState }) {
   if (!rtc.inCall) {
     return (
       <div className="flex items-center gap-2 rounded-xl border border-surface-border bg-surface-raised p-3">

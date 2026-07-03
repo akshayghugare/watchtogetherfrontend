@@ -3,11 +3,13 @@ import { AuthLayout } from '@/layouts/AuthLayout';
 import { DashboardLayout } from '@/layouts/DashboardLayout';
 import { ProtectedRoute } from './ProtectedRoute';
 import { PublicOnlyRoute } from './PublicOnlyRoute';
+import { AdminRoute } from './AdminRoute';
 import { LandingPage } from '@/pages/LandingPage';
 import { DashboardPage } from '@/pages/DashboardPage';
 import { FriendsPage } from '@/pages/FriendsPage';
 import { RoomsPage } from '@/pages/RoomsPage';
 import { WatchRoomPage } from '@/pages/WatchRoomPage';
+import { AdminPage } from '@/pages/AdminPage';
 import { NotFoundPage } from '@/pages/NotFoundPage';
 import { LoginPage } from '@/pages/auth/LoginPage';
 import { RegisterPage } from '@/pages/auth/RegisterPage';
@@ -41,6 +43,12 @@ export function AppRoutes() {
           <Route path={ROUTES.FRIENDS} element={<FriendsPage />} />
           <Route path={ROUTES.ROOMS} element={<RoomsPage />} />
           <Route path={ROUTES.WATCH} element={<WatchRoomPage />} />
+        </Route>
+      </Route>
+
+      <Route element={<AdminRoute />}>
+        <Route element={<DashboardLayout />}>
+          <Route path={ROUTES.ADMIN} element={<AdminPage />} />
         </Route>
       </Route>
 
